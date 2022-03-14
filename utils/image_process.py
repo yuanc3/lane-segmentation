@@ -19,10 +19,15 @@ def crop_resize_data(image, label=None, image_size=(1024, 384), offset=690):
     h,w,c = image.shape
     cv2.resize(image,(w,h))
     """
-    # 将图像上半部分690个像素裁减掉，并缩放至(1024,384)
-    # label也需要做相应的处理，注意思考缩放时应该采用哪种插值方式
-    # 在预测模式下，输入的label为None，此时只需要处理原始图片
-    # 返回处理后的图片和标签
+    roi_image = image[offset:, :]
+    if label is not None:
+        roi_label = label[offset:, :]
+        train_image = cv2.resize(roi_image, image_size, interpolation=cv2.INTER_LINEAR)
+        train_label = cv2.resize(roi_label, image_size, interpolation=cv2.INTER_NEAREST)
+        return train_image, train_label
+    else:
+        train_image = cv2.resize(roi_image, image_size, interpolation=cv2.INTER_LINEAR)
+        return train_image
 
 
 class LaneDataset(Dataset):
@@ -33,8 +38,8 @@ class LaneDataset(Dataset):
         with open(csv_file, 'r') as f:
             lines = f.readlines()
             self.paths = [line.strip().split(', ') for line in lines]
-        self.images = [path[0] for path in self.paths]
-        self.labels = [path[1] for path in self.paths]
+        self.images = [path[0] for path in self.paths][:16]
+        self.labels = [path[1] for path in self.paths][:16]
 
         self.transform = transform
 
@@ -43,9 +48,9 @@ class LaneDataset(Dataset):
 
     def __getitem__(self, idx):
 
-        ori_image = cv2.imread(self.images[idx])
-        ori_mask = cv2.imread(self.labels[idx], cv2.IMREAD_GRAYSCALE)
-        train_img, train_mask = crop_resize_data(ori_image, ori_mask)
+        train_img = cv2.imread(self.images[idx])
+        train_mask = cv2.imread(self.labels[idx], cv2.IMREAD_GRAYSCALE)
+        train_img, train_mask = crop_resize_data(train_img, train_mask)
         # Encode
         train_mask = encode_labels(train_mask)
         sample = [train_img.copy(), train_mask.copy()]
@@ -81,10 +86,10 @@ class LaneDatasetLMDB(Dataset):
         image_bytes = np.array(bytearray(image_bytes), dtype=np.uint8)
         mask_bytes = self.txn.get(self.labels[idx].encode())
         mask_bytes = np.array(bytearray(mask_bytes), dtype=np.uint8)
-        ori_image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
-        ori_mask = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
+        train_img= cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
+        train_mask = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
         
-        train_img, train_mask = crop_resize_data(ori_image, ori_mask)
+        train_img, train_mask = crop_resize_data(train_img, train_mask)
         # Encode
         train_mask = encode_labels(train_mask)
         sample = [train_img.copy(), train_mask.copy()]
